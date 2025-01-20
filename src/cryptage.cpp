@@ -1,0 +1,1 @@
+// Ce fichier servira de base pour le cryptage des communications
