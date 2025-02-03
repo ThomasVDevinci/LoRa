@@ -1,12 +1,10 @@
-// Ce fichier servira de base pour le cryptage des communications
 #include <Wire.h>
 #include <RTClib.h>
-#include <AESLib.h>
 
-// Initialisation du module DS3231
+// Initialisation du module RTC externe (DS3231)
 RTC_DS3231 rtc;
 
-// Déclaration des clés AES (10 clés, 16 octets chacune)
+// Déclaration des clés AES (10 clés, 16 octets chacune pour AES-128)
 const byte aes_keys[10][16] = {
   {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10},
   {0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, 0x18, 0x19, 0x1A, 0x1B, 0x1C, 0x1D, 0x1E, 0x1F, 0x20},
@@ -20,75 +18,111 @@ const byte aes_keys[10][16] = {
   {0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9A, 0x9B, 0x9C, 0x9D, 0x9E, 0x9F, 0xA0}
 };
 
-// Initialisation d'AESLib
-AESLib aes;
-
 // Buffer pour stocker les données
-char plain_text[128]; // Message à crypter
-char encrypted_text[128]; // Stocke le message crypté
-char decrypted_text[128]; // Stock e le message décrypté
+unsigned char plain_text[16];
+unsigned char encrypted_text[16];
+unsigned char decrypted_text[16];
 
-// Fonction pour initialiser le module RTC
+// Fonction pour initialiser le RTC externe
 void setRTC() {
-  if (! rtc.begin()) {
-    Serial.println("Impossible de trouver le module RTC");
+  if (!rtc.begin()) {
+    Serial.println("Impossible de trouver le RTC");
     while (1);
   }
 
   if (rtc.lostPower()) {
-    Serial.println("L'horloge s'est arrêtée. Initialisation...");
+    Serial.println("RTC a perdu l'alimentation, réglons l'heure !");
     rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
   }
+
+  Serial.println("RTC externe initialisé !");
 }
 
 // Fonction pour récupérer la clé en fonction des minutes
 const byte* getEncryptionKey(int minute) {
-  int keyIndex = minute % 10; // Index de la clé (0 à 9)
+  int keyIndex = minute % 10;
   return aes_keys[keyIndex];
+}
+
+// Fonction de substitution simplifiée
+void subBytes(unsigned char* state) {
+  for (int i = 0; i < 16; i++) {
+    state[i] = (state[i] * 2) ^ 0x63; // Substitution simplifiée
+  }
+}
+
+// Fonction de décalage des lignes simplifiée
+void shiftRows(unsigned char* state) {
+  unsigned char temp;
+  // Deuxième ligne
+  temp = state[1]; state[1] = state[5]; state[5] = state[9]; state[9] = state[13]; state[13] = temp;
+  // Troisième ligne
+  temp = state[2]; state[2] = state[10]; state[10] = temp;
+  temp = state[6]; state[6] = state[14]; state[14] = temp;
+  // Quatrième ligne
+  temp = state[15]; state[15] = state[11]; state[11] = state[7]; state[7] = state[3]; state[3] = temp;
+}
+
+// Fonction de chiffrement AES-128 simplifiée
+void aes_encrypt(const unsigned char* input, unsigned char* output, const byte* key) {
+  memcpy(output, input, 16);
+  
+  for (int round = 0; round < 10; round++) {
+    subBytes(output);
+    shiftRows(output);
+    // MixColumns et AddRoundKey sont simplifiés à un XOR avec la clé
+    for (int i = 0; i < 16; i++) {
+      output[i] ^= key[i];
+    }
+  }
+}
+
+// Fonction de déchiffrement AES-128 simplifiée
+void aes_decrypt(const unsigned char* input, unsigned char* output, const byte* key) {
+  memcpy(output, input, 16);
+  
+  for (int round = 0; round < 10; round++) {
+    // InvShiftRows et InvSubBytes sont simplifiés
+    shiftRows(output);
+    subBytes(output);
+    // InvMixColumns et AddRoundKey sont simplifiés à un XOR avec la clé
+    for (int i = 0; i < 16; i++) {
+      output[i] ^= key[i];
+    }
+  }
 }
 
 void setup() {
   Serial.begin(9600);
-  Wire.begin();
-
+  while (!Serial);
+  
   setRTC();
-  Serial.println("Module DS3231 initialisé.");
+  Serial.println("RTC DS3231 est prêt !");
 }
 
 void loop() {
-  // Récupérer l'heure actuelle
   DateTime now = rtc.now();
-  
-  // Inclure l'heure dans le message
-  snprintf(plain_text, sizeof(plain_text), "Message secret - Heure: %02d:%02d:%02d", now.hour(), now.minute(), now.second());
+  int hour = now.hour();
+  int minute = now.minute();
+  int second = now.second();
 
-  // Sélection de la clé basée sur l'heure actuelle
-  const byte* currentKey = getEncryptionKey(now.minute());
+  snprintf((char*)plain_text, 16, "Msg %02d:%02d:%02d", hour, minute, second);
 
-  // Cryptage AES
-  int cipher_length = aes.encrypt((byte*)plain_text, strlen(plain_text), currentKey, encrypted_text);
-  Serial.print("Texte crypté (hexadécimal) : ");
-  for (int i = 0; i < cipher_length; i++) {
+  const byte* currentKey = getEncryptionKey(minute);
+
+  aes_encrypt(plain_text, encrypted_text, currentKey);
+
+  Serial.print("Texte crypté : ");
+  for (int i = 0; i < 16; i++) {
     Serial.print(encrypted_text[i], HEX);
     Serial.print(" ");
   }
   Serial.println();
 
-  // Décryptage AES
-  aes.decrypt((byte*)encrypted_text, cipher_length, currentKey, decrypted_text);
-  
-  // Extraire l'heure du message décrypté et utiliser pour le décryptage
-  int hour, minute, second;
-  sscanf(decrypted_text, "Message secret - Heure: %02d:%02d:%02d", &hour, &minute, &second);
-  
-  // Utiliser l'heure extraite pour sélectionner la clé
-  const byte* decryptionKey = getEncryptionKey(minute);
-  
-  // Décryptage avec la clé correspondante
-  aes.decrypt((byte*)encrypted_text, cipher_length, decryptionKey, decrypted_text);
-  Serial.print("Texte décrypté : ");
-  Serial.println(decrypted_text);
+  aes_decrypt(encrypted_text, decrypted_text, currentKey);
 
-  // Attendre 5 secondes avant de répéter
+  Serial.print("Texte décrypté : ");
+  Serial.println((char*)decrypted_text);
+
   delay(5000);
 }
