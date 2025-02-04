@@ -3,8 +3,7 @@
 #include <Crypto.h>
 #include <AES.h>
 
-// Initialisation du module RTC DS3231
-RTC_DS3231 rtc;
+
 
 // Déclaration des clés AES (10 clés de 16 octets pour AES-128)
 const byte aes_keys[10][16] = {
@@ -20,40 +19,23 @@ const byte aes_keys[10][16] = {
   {0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9A, 0x9B, 0x9C, 0x9D, 0x9E, 0x9F, 0xA0}
 };
 
-// Buffers pour le texte clair et chiffré
 byte plain_text[16];
 byte encrypted_text[16];
 byte decrypted_text[16];
 
-// Fonction pour initialiser le RTC
-void setRTC() {
-  if (!rtc.begin()) {
-    Serial.println("Erreur : RTC non détecté !");
-    while (1);
-  }
 
-  if (rtc.lostPower()) {
-    Serial.println("RTC a perdu l'alimentation, réglage en cours...");
-    rtc.adjust(DateTime(F(__DATE__), F(__TIME__)));
-  }
 
-  Serial.println("RTC initialisé avec succès !");
-}
-
-// Récupération de la clé AES en fonction des minutes
 const byte* getEncryptionKey(int minute) {
   int keyIndex = minute % 10;
   return aes_keys[keyIndex];
 }
 
-// Fonction de chiffrement AES-128
 void aes_encrypt(const byte* input, byte* output, const byte* key) {
   AES128 aes;
   aes.setKey(key, 16);
   aes.encryptBlock(output, input);
 }
 
-// Fonction de déchiffrement AES-128
 void aes_decrypt(const byte* input, byte* output, const byte* key) {
   AES128 aes;
   aes.setKey(key, 16);
@@ -61,43 +43,38 @@ void aes_decrypt(const byte* input, byte* output, const byte* key) {
 }
 
 void setup() {
-  Serial.begin(115200);
-  while (!Serial);
-  
-  setRTC();
-  Serial.println("Sodaq Explorer prêt !");
+  SerialUSB.begin(9600);
+  while (!SerialUSB);
+
+  SerialUSB.println("Sodaq Explorer prêt !");
 }
 
 void loop() {
-  DateTime now = rtc.now();
-  int hour = now.hour();
-  int minute = now.minute();
-  int second = now.second();
 
-  // Construire le message
+  int hour = 12;
+  int minute = 35;
+  int second = 10;
+
   snprintf((char*)plain_text, 16, "Msg %02d:%02d:%02d", hour, minute, second);
 
-  Serial.print("Texte original : ");
-  Serial.println((char*)plain_text);
+  SerialUSB.print("Texte original : ");
+  SerialUSB.println((char*)plain_text);
 
-  // Récupérer la clé AES basée sur les minutes actuelles
   const byte* currentKey = getEncryptionKey(minute);
 
-  // Chiffrement
   aes_encrypt(plain_text, encrypted_text, currentKey);
 
-  Serial.print("Texte chiffré : ");
+  SerialUSB.print("Texte chiffré : ");
   for (int i = 0; i < 16; i++) {
-    Serial.print(encrypted_text[i], HEX);
-    Serial.print(" ");
+    SerialUSB.print(encrypted_text[i], HEX);
+    SerialUSB.print(" ");
   }
-  Serial.println();
+  SerialUSB.println();
 
-  // Déchiffrement
   aes_decrypt(encrypted_text, decrypted_text, currentKey);
 
-  Serial.print("Texte déchiffré : ");
-  Serial.println((char*)decrypted_text);
+  SerialUSB.print("Texte déchiffré : ");
+  SerialUSB.println((char*)decrypted_text);
 
-  delay(5000);  // Attendre 5 secondes avant de recommencer
+  delay(5000);
 }
