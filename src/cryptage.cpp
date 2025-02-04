@@ -3,8 +3,6 @@
 #include <Crypto.h>
 #include <AES.h>
 
-
-
 // Déclaration des clés AES (10 clés de 16 octets pour AES-128)
 const byte aes_keys[10][16] = {
   {0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x0C, 0x0D, 0x0E, 0x0F, 0x10},
@@ -18,12 +16,6 @@ const byte aes_keys[10][16] = {
   {0x81, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8A, 0x8B, 0x8C, 0x8D, 0x8E, 0x8F, 0x90},
   {0x91, 0x92, 0x93, 0x94, 0x95, 0x96, 0x97, 0x98, 0x99, 0x9A, 0x9B, 0x9C, 0x9D, 0x9E, 0x9F, 0xA0}
 };
-
-byte plain_text[16];
-byte encrypted_text[16];
-byte decrypted_text[16];
-
-
 
 const byte* getEncryptionKey(int minute) {
   int keyIndex = minute % 10;
@@ -42,39 +34,69 @@ void aes_decrypt(const byte* input, byte* output, const byte* key) {
   aes.decryptBlock(output, input);
 }
 
+void encryptMessage(const char* message, int hour, int minute, int second, byte* result) {
+  char timeStr[9];
+  snprintf(timeStr, sizeof(timeStr), "%02d:%02d:%02d", hour, minute, second);
+  
+  byte plainText[16];
+  memcpy(plainText, message, 16);
+  
+  const byte* currentKey = getEncryptionKey(minute);
+  aes_encrypt(plainText, result + 8, currentKey);
+  
+  memcpy(result, timeStr, 8);
+}
+
+void decryptMessage(const byte* encryptedMessage, char* decryptedText) {
+  char timeStr[9];
+  memcpy(timeStr, encryptedMessage, 8);
+  timeStr[8] = '\0';
+  
+  int hour, minute, second;
+  sscanf(timeStr, "%d:%d:%d", &hour, &minute, &second);
+  
+  const byte* currentKey = getEncryptionKey(minute);
+  byte decryptedBytes[16];
+  aes_decrypt(encryptedMessage + 8, decryptedBytes, currentKey);
+  
+  memcpy(decryptedText, decryptedBytes, 16);
+  decryptedText[16] = '\0';
+  
+  char fullDecryptedText[26];
+  snprintf(fullDecryptedText, sizeof(fullDecryptedText), "%s %s", timeStr, decryptedText);
+  strcpy(decryptedText, fullDecryptedText);
+}
+
 void setup() {
   SerialUSB.begin(9600);
   while (!SerialUSB);
-
   SerialUSB.println("Sodaq Explorer prêt !");
 }
 
 void loop() {
-
   int hour = 12;
   int minute = 35;
   int second = 10;
 
-  snprintf((char*)plain_text, 16, "Msg %02d:%02d:%02d", hour, minute, second);
+  const char* message = "Hello, World!";
+  SerialUSB.print("Message original : ");
+  SerialUSB.println(message);
 
-  SerialUSB.print("Texte original : ");
-  SerialUSB.println((char*)plain_text);
+  byte encryptedMessage[24];
+  encryptMessage(message, hour, minute, second, encryptedMessage);
 
-  const byte* currentKey = getEncryptionKey(minute);
-
-  aes_encrypt(plain_text, encrypted_text, currentKey);
-
-  SerialUSB.print("Texte chiffré : ");
-  for (int i = 0; i < 16; i++) {
-    SerialUSB.print(encrypted_text[i], HEX);
+  SerialUSB.print("Message chiffré : ");
+  for (int i = 0; i < 24; i++) {
+    SerialUSB.print(encryptedMessage[i], HEX);
     SerialUSB.print(" ");
   }
   SerialUSB.println();
 
-  aes_decrypt(encrypted_text, decrypted_text, currentKey);
+  char decryptedText[26];
+  decryptMessage(encryptedMessage, decryptedText);
 
-  SerialUSB.print("Texte déchiffré : ");
-  SerialUSB.println((char*)decrypted_text);
+  SerialUSB.print("Message déchiffré : ");
+  SerialUSB.println(decryptedText);
 
   delay(5000);
 }
