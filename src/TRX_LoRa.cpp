@@ -1,7 +1,10 @@
-int8_t trPower = 1;         // Transreceiver power  (can be -3 to 15)
-String SprFactor = "sf12";  // Spreadingsfactor (can be sf7 to sf12)
-uint8_t max_dataSize = 100; // Maximum charcount to avoid writing outside of string
-unsigned long readDelay = 5000; // Time to read for messages in ms (max 4294967295 ms, 0 to disable)
+// Identifiant unique de la carte (à modifier pour chaque carte)
+const String cardID = "CARD_01";
+
+int8_t trPower = 1;         // Puissance du transmetteur (peut être de -3 à 15)
+String SprFactor = "sf12";  // Facteur d'étalement (peut être sf7 à sf12)
+uint8_t max_dataSize = 100; // Nombre maximum de caractères pour éviter d'écrire en dehors de la chaîne
+unsigned long readDelay = 5000; // Temps de lecture des messages en ms (max 4294967295 ms, 0 pour désactiver)
 
 const unsigned long frequencies[] = {
     868100000,  // 868.1 MHz
@@ -33,24 +36,24 @@ void setLoRaFrequency(unsigned long frequency) {
 void LoraP2P_Setup() {
     Serial2.print("sys reset\r\n");
     delay(200);
-    
+
     Serial2.print("radio set pwr ");
     Serial2.print(trPower);
     Serial2.print("\r\n");
     delay(100);
-    
+
     Serial2.print("radio set sf ");
     Serial2.print(SprFactor);
     Serial2.print("\r\n");
     delay(100);
-    
+
     Serial2.print("radio set wdt ");
     Serial2.print(readDelay);
     Serial2.print("\r\n");
     delay(100);
-    
+
     setLoRaFrequency(frequencies[currentFrequencyIndex]);
-    
+
     Serial2.print("mac pause\r\n");
     delay(100);
 
@@ -98,17 +101,17 @@ int LORA_Read(char* Data) {
 
     StartLoraRead();
 
-    while (messageFlag == 0) { // As long as there is no message
+    while (messageFlag == 0) { // Tant qu'il n'y a pas de message
         while (!Serial2.available());
-        
-        delay(50);  // Some time for the buffer to fill
 
-        // Read message from RN2483 LORA chip
+        delay(50);  // Un peu de temps pour que le tampon se remplisse
+
+        // Lire le message du module LoRa RN2483
         while (Serial2.available() > 0 && Serial2.peek() != LF) {
             Buffer += (char)Serial2.read();
         }
 
-        // If there is an incoming message
+        // S'il y a un message entrant
         if (Buffer.startsWith(dataStr, 0)) {
             int i = 10;
             int j = 0;
@@ -119,10 +122,10 @@ int LORA_Read(char* Data) {
                 j++;
             }
             Data[j] = '\0';
-            messageFlag = 1; // Message received
+            messageFlag = 1; // Message reçu
         }
         else if (Buffer.startsWith(errorStr, 0)) {
-            messageFlag = 2; // Read error or Watchdogtimer timeout
+            messageFlag = 2; // Erreur de lecture ou dépassement du Watchdog timer
         }
     }
 
@@ -148,9 +151,9 @@ void checkAndUpdateFrequency() {
     if (currentTime - lastFrequencyChange >= FREQUENCY_CHANGE_INTERVAL) {
         currentFrequencyIndex = (currentFrequencyIndex + 1) % NUM_FREQUENCIES;
         setLoRaFrequency(frequencies[currentFrequencyIndex]);
-        
+
         lastFrequencyChange = currentTime;
-        
+
         #ifdef DEBUG
         SerialUSB.print("Changement de fréquence: ");
         SerialUSB.print(frequencies[currentFrequencyIndex] / 1000000.0, 3);
@@ -172,17 +175,17 @@ void setup() {
 void loop() {
     static char inputData[100];
     static int inputIndex = 0;
-    
+
     checkAndUpdateFrequency();
-    
+
     // Lecture des données depuis le moniteur série
     while (SerialUSB.available() > 0) {
         char inChar = SerialUSB.read();
-        
+
         if (inChar != '\n' && inChar != '\r') {
             inputData[inputIndex] = inChar;
             inputIndex++;
-            
+
             if (inputIndex >= 99) {
                 inputIndex = 98;
             }
@@ -190,29 +193,32 @@ void loop() {
         }
         else {
             if (inputIndex > 0) {
+                // Ajouter l'identifiant de la carte et ": " au début des données
+                String messageWithID = cardID + ": " + String(inputData);
+
                 // Convertir les données en hexadécimal
                 char hexData[200];
-                for (int i = 0; i < inputIndex; i++) {
-                    sprintf(&hexData[i * 2], "%02X", inputData[i] & 0xFF);
+                for (int i = 0; i < messageWithID.length(); i++) {
+                    sprintf(&hexData[i * 2], "%02X", messageWithID[i] & 0xFF);
                 }
-                hexData[inputIndex * 2] = '\0';  // Terminer la chaîne en hexadécimal
-                
+                hexData[messageWithID.length() * 2] = '\0';  // Terminer la chaîne en hexadécimal
+
                 // Envoyer le message en hexadécimal
                 LORA_Write(hexData);
-                
+
                 digitalWrite(LED_GREEN, LOW);
                 delay(100);
                 digitalWrite(LED_GREEN, HIGH);
-                
+
                 SerialUSB.print("Message envoyé: ");
                 SerialUSB.println(inputData);
-                
+
                 inputIndex = 0;
                 inputData[0] = '\0';
             }
         }
     }
-    
+
     // Lecture des données reçues
     char receiveData[100];
     if (LORA_Read(receiveData) == 1) {
